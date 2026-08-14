@@ -3,14 +3,23 @@
   "name": "网页翻译助手",
   "version": "1.0.0",
   "description": "全页沉浸式翻译(替换为中文)、输入框三连空格翻译成英文、视频字幕双语翻译。无需登录,无多余界面。",
-  "permissions": ["webNavigation"],
+  "permissions": [
+    "webNavigation"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*", "file://*/*"],
-      "js": ["content.js", "subtitle.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*",
+        "file://*/*"
+      ],
+      "js": [
+        "content.js",
+        "subtitle.js"
+      ],
       "all_frames": true,
       "match_about_blank": true,
       "match_origin_as_fallback": true,
@@ -21,5 +30,8 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "翻译助手:点击开关调试面板"
   }
 }

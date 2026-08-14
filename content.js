@@ -56,7 +56,7 @@
         log("消息异常: " + e);
         done([]);
       }
-      setTimeout(() => done([]), 40000);
+      setTimeout(() => done([]), 180000); // 大页面(如维基百科)翻译较久,延长超时
     });
   }
 
@@ -173,6 +173,7 @@
   }
   function requestToggle() {
     const id = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    lastMsgId = id; // 防止广播回环(子帧转发回来的消息被再次处理)
     applyState(!pageEnabled);
     relayToggle(pageEnabled, id);
   }
@@ -316,6 +317,14 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     );
   }
 
+  function registerRuntime() {
+    try {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg && msg.type === "wt-sidebar") toggleSidebar();
+      });
+    } catch (e) { /* noop */ }
+  }
+
   function registerMessage() {
     window.addEventListener("message", (e) => {
       const m = e.data;
@@ -381,6 +390,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     registerHotkeys();
     registerTripleSpace();
     registerMessage();
+    registerRuntime();
     ensureObserver();
     log("插件已加载");
   }
