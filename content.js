@@ -56,7 +56,7 @@
         log("消息异常: " + e);
         done([]);
       }
-      setTimeout(() => done([]), 180000); // 大页面(如维基百科)翻译较久,延长超时
+      setTimeout(() => done([]), 60000);
     });
   }
 
@@ -119,19 +119,24 @@
     }
     stats.lastAction = "翻译中: " + nodes.length + " 个文本节点";
     log("开始翻译 " + nodes.length + " 节点");
-    const texts = nodes.map((n) => n.nodeValue.trim());
-    const results = await translateTexts(texts, TARGET);
-    if (!pageEnabled) return; // 翻译期间被关闭,放弃应用(避免覆盖还原)
     let done = 0;
-    nodes.forEach((node, i) => {
-      const tr = results[i];
-      if (!tr || !tr.trim()) return;
-      if (!originals.has(node)) originals.set(node, node.nodeValue);
-      node.nodeValue = tr;
-      fadeNode(node);
-      done += 1;
-    });
-    stats.nodesTranslated += done;
+    const CHUNK = 100; // 增量:每块独立应用,避免长时间无反馈
+    for (let c = 0; c < nodes.length; c += CHUNK) {
+      const chunk = nodes.slice(c, c + CHUNK);
+      const texts = chunk.map((n) => n.nodeValue.trim());
+      const results = await translateTexts(texts, TARGET);
+      if (!pageEnabled) return; // 翻译期间被关闭,放弃应用(避免覆盖还原)
+      chunk.forEach((node, i) => {
+        const tr = results[i];
+        if (!tr || !tr.trim()) return;
+        if (!originals.has(node)) originals.set(node, node.nodeValue);
+        node.nodeValue = tr;
+        fadeNode(node);
+        done += 1;
+      });
+      stats.nodesTranslated = done;
+      stats.lastAction = "翻译中 " + done + "/" + nodes.length;
+    }
     stats.lastAction = "翻译完成: " + done + "/" + nodes.length;
     log("翻译完成 " + done + "/" + nodes.length);
   }

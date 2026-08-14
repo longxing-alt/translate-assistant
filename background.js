@@ -8,7 +8,7 @@ chrome.action.onClicked.addListener((tab) => {
 
 function fetchWithTimeout(url, opts) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), (opts && opts.timeout) || 8000);
+  const t = setTimeout(() => ctrl.abort(), (opts && opts.timeout) || 5000);
   return fetch(url, Object.assign({}, opts, { signal: ctrl.signal })).finally(() => clearTimeout(t));
 }
 
@@ -45,44 +45,44 @@ async function translateBatch(batch, to) {
     }
   } catch (e) { /* 下一端点 */ }
 
-  // 端点3:必应翻译(逐条,国内可用)
+  // 端点3:必应翻译(并发,国内可用)
   try {
-    const out = [];
-    for (const t of batch) {
-      let text = "";
-      const r = await fetchWithTimeout(
-        "https://cn.bing.com/ttranslatev3",
-        {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
-          body: "from=auto-detect&to=" + bingLang(to) + "&text=" + encodeURIComponent(t),
-          timeout: 6000,
+    const out = new Array(batch.length);
+    await Promise.all(batch.map(async (t, idx) => {
+      try {
+        const r = await fetchWithTimeout(
+          "https://cn.bing.com/ttranslatev3",
+          {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
+            body: "from=auto-detect&to=" + bingLang(to) + "&text=" + encodeURIComponent(t),
+            timeout: 5000,
+          }
+        );
+        if (r.ok) {
+          const data = await r.json();
+          out[idx] = (data && data[0] && data[0].translations && data[0].translations[0] && data[0].translations[0].text) || "";
         }
-      );
-      if (r.ok) {
-        const data = await r.json();
-        text = (data && data[0] && data[0].translations && data[0].translations[0] && data[0].translations[0].text) || "";
-      }
-      out.push(text);
-    }
+      } catch (e) { /* 单条失败 */ }
+    }));
     return out;
   } catch (e) { /* 下一端点 */ }
 
-  // 端点4:MyMemory(逐条,兜底)
+  // 端点4:MyMemory(并发,兜底)
   try {
-    const out = [];
-    for (const t of batch) {
-      let text = "";
-      const r = await fetchWithTimeout(
-        "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
-        { timeout: 6000 }
-      );
-      if (r.ok) {
-        const data = await r.json();
-        text = (data && data.responseData && data.responseData.translatedText) || "";
-      }
-      out.push(text);
-    }
+    const out = new Array(batch.length);
+    await Promise.all(batch.map(async (t, idx) => {
+      try {
+        const r = await fetchWithTimeout(
+          "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
+          { timeout: 5000 }
+        );
+        if (r.ok) {
+          const data = await r.json();
+          out[idx] = (data && data.responseData && data.responseData.translatedText) || "";
+        }
+      } catch (e) { /* 单条失败 */ }
+    }));
     return out;
   } catch (e) { /* 全部失败 */ }
 
