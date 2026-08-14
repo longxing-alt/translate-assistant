@@ -13,10 +13,23 @@ function fetchWithTimeout(url, opts) {
 }
 
 // 识别翻译服务的错误/警告文本(如 MyMemory 超配额提示),避免污染页面
+const TRAD_CHARS = "體們說這門時國學書東來見對後會問點電號車長頭語裡開當發還進過媽覺鐘遠張萬兩邊親銀錢員與華風雙應樣讓幾從種際麗愛現產義習燈寫讀講話聽請謝護轉輕鬆處灣臺灣";
+const CANT_CHARS = "乜嘢嘅咁喺唔佢係啲冇哋嚟畀攞搵睇講傾食飲瞓返咗啦嘞";
+function hasTraditional(t) { for (const c of TRAD_CHARS) if (t.includes(c)) return true; return false; }
+function hasCantonese(t) { for (const c of CANT_CHARS) if (t.includes(c)) return true; return false; }
+function detectSrcLang(t) {
+  if (hasCantonese(t)) return "zh-HK";
+  if (hasTraditional(t)) return "zh-TW";
+  if (/[一-鿿]/.test(t)) return "zh-CN";
+  if (/[぀-ヿ]/.test(t)) return "ja";
+  if (/[가-힯]/.test(t)) return "ko";
+  return null;
+}
+
 function isBadResult(tr, orig) {
   if (!tr || !tr.trim()) return true;
   const t = tr.trim();
-  if (t.length > 30 && /MYMEMORY WARNING|QUOTA|ALL AVAILABLE FREE|HTTP \d{3}|EXCEPTION/i.test(t)) return true;
+  if (t.length > 30 && /MYMEMORY WARNING|QUOTA|ALL AVAILABLE FREE|HTTP \d{3}|EXCEPTION|INVALID SOURCE/i.test(t)) return true;
   if (t === orig && orig.length > 20) return true;
   if (orig.length > 10 && t.length > orig.length * 8) return true;
   return false;
@@ -59,8 +72,10 @@ async function translateBatch(batch, to) {
       while (idx < batch.length) {
         const i = idx++;
         try {
+          const src = detectSrcLang(batch[i]);
+          if (!src) continue; // 无法检测源语言,跳过(留给 Google)
           const r = await fetchWithTimeout(
-            "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(batch[i].slice(0, 450)) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
+            "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(batch[i].slice(0, 450)) + "&langpair=" + src + "|" + (to === "en" ? "en" : "zh-CN"),
             { timeout: 4000 }
           );
           if (r.ok) {

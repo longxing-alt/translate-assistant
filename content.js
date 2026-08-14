@@ -75,9 +75,11 @@
               while (idx < texts.length) {
                 const i = idx++;
                 try {
+                  const src = detectSrcLang(texts[i]);
+                  if (!src) return; // 无法检测源语言,交给 Google 通道
                   const r = await fetch(
                     "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(texts[i].slice(0, 450)) +
-                    "&langpair=auto|" + (to === "en" ? "en" : "zh-CN")
+                    "&langpair=" + src + "|" + (to === "en" ? "en" : "zh-CN")
                   );
                   if (r.ok) {
                     const data = await r.json();
@@ -111,10 +113,23 @@
   function isBadResult(tr, orig) {
     if (!tr || !tr.trim()) return true;
     const t = tr.trim();
-    if (t.length > 30 && /MYMEMORY WARNING|QUOTA|ALL AVAILABLE FREE|HTTP \d{3}|EXCEPTION/i.test(t)) return true;
+    if (t.length > 30 && /MYMEMORY WARNING|QUOTA|ALL AVAILABLE FREE|HTTP \d{3}|EXCEPTION|INVALID SOURCE/i.test(t)) return true;
     if (t === orig && orig.length > 20) return true;
     if (orig.length > 10 && t.length > orig.length * 8) return true;
     return false;
+  }
+  // 繁体/粤语检测:繁体或粤语中文需要转简体
+  const TRAD_CHARS = "體們說這門時國學書東來見對後會問點電號車長頭語裡開當發還進過媽覺鐘遠張萬兩邊親銀錢員與華風雙應樣讓幾從種際麗愛現產義習燈寫讀講話聽請謝護轉輕鬆處灣臺灣";
+  const CANT_CHARS = "乜嘢嘅咁喺唔佢係啲冇哋嚟畀攞搵睇講傾食飲瞓返咗啦嘞";
+  function hasTraditional(t) { for (const c of TRAD_CHARS) if (t.includes(c)) return true; return false; }
+  function hasCantonese(t) { for (const c of CANT_CHARS) if (t.includes(c)) return true; return false; }
+  function detectSrcLang(t) {
+    if (hasCantonese(t)) return "zh-HK";
+    if (hasTraditional(t)) return "zh-TW";
+    if (/[一-鿿]/.test(t)) return "zh-CN";
+    if (/[぀-ヿ]/.test(t)) return "ja";
+    if (/[가-힯]/.test(t)) return "ko";
+    return null;
   }
 
   // ============ 文本节点收集(含 shadow DOM) ============
@@ -138,7 +153,7 @@
 
   function collectTranslateNodes(root) {
     const into = [];
-    walkCollect(root, into, (t) => !isMostlyChinese(t) && !isSkippable(t));
+    walkCollect(root, into, (t) => (!isMostlyChinese(t) || hasTraditional(t) || hasCantonese(t)) && !isSkippable(t));
     return into;
   }
   function collectRestoreNodes(root) {
@@ -150,7 +165,7 @@
     try {
       for (const el of document.querySelectorAll("*")) {
         if (el.shadowRoot) {
-          walkCollect(el.shadowRoot, into, translateMode ? (t) => !isMostlyChinese(t) && !isSkippable(t) : null);
+          walkCollect(el.shadowRoot, into, translateMode ? (t) => (!isMostlyChinese(t) || hasTraditional(t) || hasCantonese(t)) && !isSkippable(t) : null);
         }
       }
     } catch (e) { /* noop */ }
@@ -433,7 +448,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
           if (el.shadowRoot && !el.shadowRoot.__wtSeen) {
             el.shadowRoot.__wtSeen = true;
             const nodes = [];
-            walkCollect(el.shadowRoot, nodes, (t) => !isMostlyChinese(t) && !isSkippable(t));
+            walkCollect(el.shadowRoot, nodes, (t) => (!isMostlyChinese(t) || hasTraditional(t) || hasCantonese(t)) && !isSkippable(t));
             const pending = nodes.filter((n) => !originals.has(n));
             if (!pending.length) continue;
             const texts = pending.map((n) => n.nodeValue.trim());
