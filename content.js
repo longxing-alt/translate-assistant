@@ -39,24 +39,56 @@
     stats.requests += 1;
     return new Promise((resolve) => {
       let settled = false;
-      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      let viaBg = false;
+      let viaDirect = false;
+      const done = (v, via) => {
+        if (settled) return;
+        settled = true;
+        if (via === "bg") viaBg = true;
+        if (via === "direct") viaDirect = true;
+        resolve(v);
+      };
+      // 通道A:background(Google → 必应 → MyMemory)
       try {
         chrome.runtime.sendMessage({ type: "wt-translate", texts, to }, (resp) => {
           const results = (resp && resp.results) || [];
           if (resp && resp.error) {
             stats.failedBatches += 1;
             stats.lastError = resp.error;
-            log("翻译失败: " + resp.error);
+            log("后台通道失败: " + resp.error);
           }
-          done(results);
+          done(results, "bg");
         });
       } catch (e) {
-        stats.failedBatches += 1;
-        stats.lastError = String(e);
-        log("消息异常: " + e);
-        done([]);
+        log("后台消息异常: " + e);
+        done([], "bg");
       }
-      setTimeout(() => done([]), 60000);
+      // 通道B:content 直连 MyMemory(CORS 允许,不依赖后台)
+      (async () => {
+        try {
+          const out = new Array(texts.length);
+          let ok = 0;
+          await Promise.all(texts.map(async (t, i) => {
+            try {
+              const r = await fetch(
+                "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t.slice(0, 450)) +
+                "&langpair=auto|" + (to === "en" ? "en" : "zh-CN")
+              );
+              if (r.ok) {
+                const data = await r.json();
+                const tr = (data && data.responseData && data.responseData.translatedText) || "";
+                if (tr) { out[i] = tr; ok += 1; }
+              }
+            } catch (e) { /* 单条失败 */ }
+          }));
+          if (ok > 0) {
+            stats.lastError = "";
+            log("直连通道完成 " + ok + "/" + texts.length);
+            done(out, "direct");
+          }
+        } catch (e) { /* 通道B失败 */ }
+      })();
+      setTimeout(() => done([], "timeout"), 45000);
     });
   }
 
