@@ -100,6 +100,14 @@
   function isSkippable(text) {
     return /^[\d\s.,:%+\-()\/\\:]+$/.test(text);
   }
+  function isBadResult(tr, orig) {
+    if (!tr || !tr.trim()) return true;
+    const t = tr.trim();
+    if (t.length > 30 && /MYMEMORY WARNING|QUOTA|ALL AVAILABLE FREE|HTTP \d{3}|EXCEPTION/i.test(t)) return true;
+    if (t === orig && orig.length > 20) return true;
+    if (orig.length > 10 && t.length > orig.length * 8) return true;
+    return false;
+  }
 
   // ============ 文本节点收集(含 shadow DOM) ============
   function walkCollect(root, into, filterFn) {
@@ -160,7 +168,7 @@
       if (!pageEnabled) return; // 翻译期间被关闭,放弃应用(避免覆盖还原)
       chunk.forEach((node, i) => {
         const tr = results[i];
-        if (!tr || !tr.trim()) return;
+        if (!tr || !tr.trim() || isBadResult(tr, node.nodeValue)) return;
         if (!originals.has(node)) originals.set(node, node.nodeValue);
         node.nodeValue = tr;
         fadeNode(node);
@@ -343,7 +351,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         }
         translateTexts([text], INPUT_TARGET).then(([tr]) => {
           el.classList.remove("wt-translating");
-          if (!tr) {
+          if (!tr || isBadResult(tr, text)) {
             stats.lastAction = "输入框翻译失败";
             log("输入框翻译失败: " + stats.lastError);
             return;

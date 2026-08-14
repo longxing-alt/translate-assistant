@@ -16,6 +16,16 @@ function bingLang(to) {
   return to === "en" ? "en" : "zh-Hans";
 }
 
+// 识别翻译服务的错误/警告文本(如 MyMemory 超配额提示),避免污染页面
+function isBadResult(tr, orig) {
+  if (!tr || !tr.trim()) return true;
+  const t = tr.trim();
+  if (t.length > 30 && /MYMEMORY WARNING|QUOTA|ALL AVAILABLE FREE|HTTP \d{3}|EXCEPTION/i.test(t)) return true;
+  if (t === orig && orig.length > 20) return true;
+  if (orig.length > 10 && t.length > orig.length * 8) return true;
+  return false;
+}
+
 // 尝试端点链翻译一个批次;全部失败返回 null
 async function translateBatch(batch, to) {
   // 端点1:translate.googleapis.com POST
@@ -45,7 +55,7 @@ async function translateBatch(batch, to) {
     }
   } catch (e) { /* 下一端点 */ }
 
-  // 端点3:MyMemory(并发,大陆直连可用,优先)
+  // 端点3:MyMemory(并发,大陆直连可用,优先;结果需校验,超配额警告不算译文)
   try {
     const out = new Array(batch.length);
     await Promise.all(batch.map(async (t, idx) => {
@@ -56,12 +66,13 @@ async function translateBatch(batch, to) {
         );
         if (r.ok) {
           const data = await r.json();
-          out[idx] = (data && data.responseData && data.responseData.translatedText) || "";
+          const tr = (data && data.responseData && data.responseData.translatedText) || "";
+          out[idx] = isBadResult(tr, t) ? "" : tr;
         }
       } catch (e) { /* 单条失败 */ }
     }));
-    return out;
-  } catch (e) { /* 全部失败 */ }
+    if (out.some((x) => x)) return out; // 有有效译文才返回,否则回退 Google
+  } catch (e) { /* 回退 Google */ }
 
   return null;
 }
