@@ -45,36 +45,13 @@ async function translateBatch(batch, to) {
     }
   } catch (e) { /* 下一端点 */ }
 
-  // 端点3:必应翻译(并发,国内可用)
+  // 端点3:MyMemory(并发,大陆直连可用,优先)
   try {
     const out = new Array(batch.length);
     await Promise.all(batch.map(async (t, idx) => {
       try {
         const r = await fetchWithTimeout(
-          "https://cn.bing.com/ttranslatev3",
-          {
-            method: "POST",
-            headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
-            body: "from=auto-detect&to=" + bingLang(to) + "&text=" + encodeURIComponent(t),
-            timeout: 5000,
-          }
-        );
-        if (r.ok) {
-          const data = await r.json();
-          out[idx] = (data && data[0] && data[0].translations && data[0].translations[0] && data[0].translations[0].text) || "";
-        }
-      } catch (e) { /* 单条失败 */ }
-    }));
-    return out;
-  } catch (e) { /* 下一端点 */ }
-
-  // 端点4:MyMemory(并发,兜底)
-  try {
-    const out = new Array(batch.length);
-    await Promise.all(batch.map(async (t, idx) => {
-      try {
-        const r = await fetchWithTimeout(
-          "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
+          "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t.slice(0, 450)) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
           { timeout: 5000 }
         );
         if (r.ok) {
