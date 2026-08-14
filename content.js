@@ -127,6 +127,7 @@
       if (!tr || !tr.trim()) return;
       if (!originals.has(node)) originals.set(node, node.nodeValue);
       node.nodeValue = tr;
+      fadeNode(node);
       done += 1;
     });
     stats.nodesTranslated += done;
@@ -156,8 +157,12 @@
     pageEnabled = enabled;
     stats.enabled = enabled;
     stats.toggles += 1;
-    if (pageEnabled) translatePage();
-    else restorePage();
+    if (pageEnabled) {
+      translatePage();
+      showPanel(); // 翻译时自动显示调试面板
+    } else {
+      restorePage();
+    }
   }
 
   // ============ iframe 广播(postMessage 树递归,跨域通用) ============
@@ -199,7 +204,9 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         "position:fixed;top:12px;right:12px;width:340px;max-height:75vh;overflow:auto;background:rgba(28,28,34,.96);color:#eee;z-index:2147483647;border-radius:12px;padding:14px 16px;font:12px/1.7 -apple-system,'Segoe UI','Microsoft YaHei',sans-serif;box-shadow:0 6px 30px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.08)";
       document.documentElement.appendChild(panel);
     }
-    panel.innerHTML = renderPanel();
+    panel.innerHTML = renderPanel() + '<div id="wt-panel-close" style="position:absolute;top:8px;right:12px;cursor:pointer;color:#999;font-size:14px">✕</div>';
+    const closeBtn = panel.querySelector("#wt-panel-close");
+    if (closeBtn) closeBtn.onclick = () => { sidebarVisible = false; panel.remove(); };
   }
   function toggleSidebar() {
     sidebarVisible = !sidebarVisible;
@@ -285,6 +292,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         spaceCount = 0;
         lastTriggerAt = now;
         e.preventDefault();
+        el.classList.add("wt-translating");
         stats.lastAction = "输入框三连空格触发";
         log("三连空格触发");
 
@@ -296,6 +304,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
           return;
         }
         translateTexts([text], INPUT_TARGET).then(([tr]) => {
+          el.classList.remove("wt-translating");
           if (!tr) {
             stats.lastAction = "输入框翻译失败";
             log("输入框翻译失败: " + stats.lastError);
@@ -385,8 +394,31 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     }, 1500);
   }
 
+  // ============ 翻译渐变效果 ============
+  function injectStyle() {
+    try {
+      if (document.getElementById("wt-style")) return;
+      const st = document.createElement("style");
+      st.id = "wt-style";
+      st.textContent =
+        ".wt-fade-in{animation:wtFadeIn .5s ease}.wt-translating{opacity:.6;transition:opacity .25s ease}" +
+        "@keyframes wtFadeIn{from{opacity:.2}to{opacity:1}}";
+      (document.head || document.documentElement).appendChild(st);
+    } catch (e) { /* noop */ }
+  }
+  function fadeNode(node) {
+    try {
+      const p = node.parentElement;
+      if (!p) return;
+      p.classList.remove("wt-fade-in");
+      void p.offsetWidth;
+      p.classList.add("wt-fade-in");
+    } catch (e) { /* noop */ }
+  }
+
   // ============ 启动(延迟:兼容 doc.write 替换 document 的 iframe) ============
   function init() {
+    injectStyle();
     registerHotkeys();
     registerTripleSpace();
     registerMessage();
