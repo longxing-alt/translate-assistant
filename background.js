@@ -23,6 +23,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           let ok = false;
           for (let attempt = 0; attempt < 3 && !ok; attempt++) {
             try {
+              // 端点1:gtx POST
               const body = batch.map((t) => "q=" + encodeURIComponent(t)).join("&");
               const resp = await fetch(
                 "https://translate.googleapis.com/translate_a/t?client=gtx&dt=t&sl=auto&tl=" + to + "&format=html",
@@ -36,10 +37,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
                 continue;
               }
-              if (!resp.ok) throw new Error("HTTP " + resp.status);
-              const data = await resp.json();
-              for (let j = 0; j < batch.length; j++) out[start + j] = (data && data[j] && data[j][0]) || "";
-              ok = true;
+              if (resp.ok) {
+                const data = await resp.json();
+                for (let j = 0; j < batch.length; j++) out[start + j] = (data && data[j] && data[j][0]) || "";
+                ok = true;
+                continue;
+              }
+              // 端点2:gtx single GET(单条合并)
+              const joined = batch.join("\n");
+              const resp2 = await fetch(
+                "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=" + to + "&dt=t&q=" + encodeURIComponent(joined)
+              );
+              if (resp2.ok) {
+                const data2 = await resp2.json();
+                const flat = (data2[0] || []).map((s) => (s && s[0]) || "").join("");
+                const parts = flat.split("\n");
+                for (let j = 0; j < batch.length; j++) out[start + j] = parts[j] || "";
+                ok = true;
+                continue;
+              }
+              throw new Error("HTTP " + resp.status + "/" + resp2.status);
             } catch (e) {
               if (attempt === 2) {
                 sendResponse({ results: out, error: String(e) });

@@ -426,9 +426,12 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     ensureObserver();
     log("插件已加载");
   }
+  let booted = false;
   function boot() {
+    if (booted) return true;
     try {
       if (document.documentElement && document.readyState !== "loading") {
+        booted = true;
         init();
         return true;
       }
