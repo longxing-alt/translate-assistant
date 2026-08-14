@@ -88,7 +88,7 @@
           }
         } catch (e) { /* 通道B失败 */ }
       })();
-      setTimeout(() => done([], "timeout"), 45000);
+      setTimeout(() => done([], "timeout"), 120000);
     });
   }
 

@@ -62,7 +62,7 @@ async function translateBatch(batch, to) {
       try {
         const r = await fetchWithTimeout(
           "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t.slice(0, 450)) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
-          { timeout: 5000 }
+          { timeout: 4000 }
         );
         if (r.ok) {
           const data = await r.json();
@@ -74,7 +74,7 @@ async function translateBatch(batch, to) {
     if (out.some((x) => x)) return out; // 有有效译文才返回,否则回退 Google
   } catch (e) { /* 回退 Google */ }
 
-  return null;
+
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
