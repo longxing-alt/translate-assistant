@@ -20,9 +20,10 @@ function hasCantonese(t) { for (const c of CANT_CHARS) if (t.includes(c)) return
 function detectSrcLang(t) {
   if (hasCantonese(t)) return "zh-HK";
   if (hasTraditional(t)) return "zh-TW";
-  if (/[一-鿿]/.test(t)) return "zh-CN";
-  if (/[぀-ヿ]/.test(t)) return "ja";
+  if (/[぀-ヿ]/.test(t)) return "ja"; // 假名优先(日文常混汉字)
   if (/[가-힯]/.test(t)) return "ko";
+  if (/[一-鿿]/.test(t)) return "zh-CN";
+  if (/[A-Za-z]{4,}/.test(t)) return "en"; // 拉丁文本默认英文(MyMemory 需要具体源语言)
   return null;
 }
 
