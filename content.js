@@ -121,6 +121,7 @@
     log("开始翻译 " + nodes.length + " 节点");
     const texts = nodes.map((n) => n.nodeValue.trim());
     const results = await translateTexts(texts, TARGET);
+    if (!pageEnabled) return; // 翻译期间被关闭,放弃应用(避免覆盖还原)
     let done = 0;
     nodes.forEach((node, i) => {
       const tr = results[i];
@@ -358,6 +359,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
       if (!pending.length) return;
       const texts = pending.map((n) => n.nodeValue.trim());
       translateTexts(texts, TARGET).then((results) => {
+        if (!pageEnabled) return;
         pending.forEach((node, i) => {
           const tr = results[i];
           if (!tr || !tr.trim()) return;
