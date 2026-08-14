@@ -63,31 +63,39 @@
         log("后台消息异常: " + e);
         done([], "bg");
       }
-      // 通道B:content 直连 MyMemory(CORS 允许,不依赖后台)
-      (async () => {
-        try {
-          const out = new Array(texts.length);
-          let ok = 0;
-          await Promise.all(texts.map(async (t, i) => {
-            try {
-              const r = await fetch(
-                "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t.slice(0, 450)) +
-                "&langpair=auto|" + (to === "en" ? "en" : "zh-CN")
-              );
-              if (r.ok) {
-                const data = await r.json();
-                const tr = (data && data.responseData && data.responseData.translatedText) || "";
-                if (tr) { out[i] = tr; ok += 1; }
+      // 通道B:content 直连 MyMemory(延迟 8s 让后台先跑;并发 3,避免 429 风暴)
+      setTimeout(() => {
+        if (settled) return; // 后台已返回,跳过直连
+        (async () => {
+          try {
+            const out = new Array(texts.length);
+            let ok = 0;
+            let idx = 0;
+            async function worker() {
+              while (idx < texts.length) {
+                const i = idx++;
+                try {
+                  const r = await fetch(
+                    "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(texts[i].slice(0, 450)) +
+                    "&langpair=auto|" + (to === "en" ? "en" : "zh-CN")
+                  );
+                  if (r.ok) {
+                    const data = await r.json();
+                    const tr = (data && data.responseData && data.responseData.translatedText) || "";
+                    if (tr && !isBadResult(tr, texts[i])) { out[i] = tr; ok += 1; }
+                  }
+                } catch (e) { /* 单条失败 */ }
               }
-            } catch (e) { /* 单条失败 */ }
-          }));
-          if (ok > 0) {
-            stats.lastError = "";
-            log("直连通道完成 " + ok + "/" + texts.length);
-            done(out, "direct");
-          }
-        } catch (e) { /* 通道B失败 */ }
-      })();
+            }
+            await Promise.all([worker(), worker(), worker()]);
+            if (ok > 0) {
+              stats.lastError = "";
+              log("直连通道完成 " + ok + "/" + texts.length);
+              done(out, "direct");
+            }
+          } catch (e) { /* 通道B失败 */ }
+        })();
+      }, 8000);
       setTimeout(() => done([], "timeout"), 120000);
     });
   }
@@ -203,6 +211,8 @@
     pageEnabled = enabled;
     stats.enabled = enabled;
     stats.toggles += 1;
+    // 同步状态到所有 frame(iframe 重载后也能对齐)
+    try { chrome.runtime.sendMessage({ type: "wt-sync-state", enabled }); } catch (e) { /* noop */ }
     if (pageEnabled) {
       translatePage();
       showPanel(); // 翻译时自动显示调试面板
@@ -376,6 +386,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     try {
       chrome.runtime.onMessage.addListener((msg) => {
         if (msg && msg.type === "wt-sidebar") toggleSidebar();
+        else if (msg && msg.type === "wt-state") applyState(!!msg.enabled);
       });
     } catch (e) { /* noop */ }
   }

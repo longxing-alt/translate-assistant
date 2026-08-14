@@ -1,5 +1,5 @@
-// 网页翻译助手 - 后台:翻译请求(多端点回退 + 超时控制)
-// 端点链:gtx POST → single GET → 必应(国内可用) → MyMemory
+// 网页翻译助手 - 后台:翻译请求 + 翻译状态跨 frame 同步
+// 端点链:Google POST → single GET → MyMemory(兜底)
 chrome.action.onClicked.addListener((tab) => {
   if (tab && tab.id != null) {
     try { chrome.tabs.sendMessage(tab.id, { type: "wt-sidebar" }); } catch (e) { /* noop */ }
@@ -12,10 +12,6 @@ function fetchWithTimeout(url, opts) {
   return fetch(url, Object.assign({}, opts, { signal: ctrl.signal })).finally(() => clearTimeout(t));
 }
 
-function bingLang(to) {
-  return to === "en" ? "en" : "zh-Hans";
-}
-
 // 识别翻译服务的错误/警告文本(如 MyMemory 超配额提示),避免污染页面
 function isBadResult(tr, orig) {
   if (!tr || !tr.trim()) return true;
@@ -26,9 +22,8 @@ function isBadResult(tr, orig) {
   return false;
 }
 
-// 尝试端点链翻译一个批次;全部失败返回 null
 async function translateBatch(batch, to) {
-  // 端点1:translate.googleapis.com POST
+  // 端点1:Google POST
   try {
     const body = batch.map((t) => "q=" + encodeURIComponent(t)).join("&");
     const r = await fetchWithTimeout(
@@ -41,7 +36,7 @@ async function translateBatch(batch, to) {
     }
   } catch (e) { /* 下一端点 */ }
 
-  // 端点2:translate.googleapis.com single GET
+  // 端点2:Google single GET
   try {
     const joined = batch.join("\n");
     const r = await fetchWithTimeout(
@@ -55,29 +50,46 @@ async function translateBatch(batch, to) {
     }
   } catch (e) { /* 下一端点 */ }
 
-  // 端点3:MyMemory(并发,大陆直连可用,优先;结果需校验,超配额警告不算译文)
+  // 端点3:MyMemory(并发 3,兜底;429 快速失败)
   try {
     const out = new Array(batch.length);
-    await Promise.all(batch.map(async (t, idx) => {
-      try {
-        const r = await fetchWithTimeout(
-          "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(t.slice(0, 450)) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
-          { timeout: 4000 }
-        );
-        if (r.ok) {
-          const data = await r.json();
-          const tr = (data && data.responseData && data.responseData.translatedText) || "";
-          out[idx] = isBadResult(tr, t) ? "" : tr;
-        }
-      } catch (e) { /* 单条失败 */ }
-    }));
-    if (out.some((x) => x)) return out; // 有有效译文才返回,否则回退 Google
-  } catch (e) { /* 回退 Google */ }
+    let idx = 0;
+    let okCount = 0;
+    async function worker() {
+      while (idx < batch.length) {
+        const i = idx++;
+        try {
+          const r = await fetchWithTimeout(
+            "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(batch[i].slice(0, 450)) + "&langpair=auto|" + (to === "en" ? "en" : "zh-CN"),
+            { timeout: 4000 }
+          );
+          if (r.ok) {
+            const data = await r.json();
+            const tr = (data && data.responseData && data.responseData.translatedText) || "";
+            if (!isBadResult(tr, batch[i])) { out[i] = tr; okCount += 1; }
+          }
+        } catch (e) { /* 单条失败 */ }
+      }
+    }
+    await Promise.all([worker(), worker(), worker()]);
+    if (okCount > 0) return out;
+  } catch (e) { /* 全部失败 */ }
 
-
+  return null;
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // 翻译状态同步:主文档状态变化时广播给 tab 所有 frame(iframe 重载后也能对齐)
+  if (msg && msg.type === "wt-sync-state" && sender.tab) {
+    chrome.webNavigation.getAllFrames({ tabId: sender.tab.id }, (frames) => {
+      (frames || []).forEach((f) => {
+        try {
+          chrome.tabs.sendMessage(sender.tab.id, { type: "wt-state", enabled: !!msg.enabled }, { frameId: f.frameId });
+        } catch (e) { /* noop */ }
+      });
+    });
+  }
+  // 翻译请求
   if (msg && msg.type === "wt-translate") {
     (async () => {
       const texts = msg.texts || [];
@@ -97,7 +109,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               for (let j = 0; j < batch.length; j++) out[start + j] = results[j] || "";
               break;
             }
-            await new Promise((r) => setTimeout(r, 800));
+            await new Promise((r) => setTimeout(r, 600));
             if (attempt === 1) {
               sendResponse({ results: out, error: "所有翻译端点均失败" });
               return;
