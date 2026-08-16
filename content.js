@@ -230,8 +230,7 @@
     // 同步状态到所有 frame(iframe 重载后也能对齐)
     try { chrome.runtime.sendMessage({ type: "wt-sync-state", enabled }); } catch (e) { /* noop */ }
     if (pageEnabled) {
-      translatePage();
-      showPanel(); // 翻译时自动显示调试面板
+      translatePage(); // 调试面板不再自动弹出,需要时按 Alt+T 手动打开
     } else {
       restorePage();
     }
