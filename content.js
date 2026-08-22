@@ -321,16 +321,11 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     let spaceCount = 0;
     let firstSpaceAt = 0;
     let lastTriggerAt = 0;
-    let pendingCompose = false;
-    // 中文输入法合成结束:若合成前已累计 2 次空格,合成确认后的第 1 次空格即触发
-    document.addEventListener("compositionend", () => {
-      pendingCompose = true;
-      setTimeout(() => { pendingCompose = false; }, 800);
-    });
     document.addEventListener(
       "keydown",
       (e) => {
-        const isSpace = e.key === " " || e.code === "Space" || e.keyCode === 229;
+        // 只统计非输入法合成状态下的空格(选字确认的 229/composing 不计,避免打字误触)
+        const isSpace = e.key === " " && !e.isComposing && e.keyCode !== 229;
         if (!isSpace) {
           spaceCount = 0;
           return;
@@ -342,7 +337,8 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         }
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         const now = Date.now();
-        if (spaceCount === 0 || now - firstSpaceAt > 900) {
+        // 必须 400ms 内连续按下才算(打字间隔会被重置,杜绝误判)
+        if (spaceCount === 0 || now - firstSpaceAt > 400) {
           spaceCount = 1;
           firstSpaceAt = now;
           recordKey("sp1");
@@ -351,16 +347,10 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         spaceCount += 1;
         recordKey("sp" + spaceCount);
         if (spaceCount < 3) return;
-        // 三连空格达成(合成中的空格也参与计数;触发要求非合成状态)
-        if (e.isComposing || e.key === "Process") {
-          spaceCount = 0;
-          return;
-        }
-        if (now - lastTriggerAt < 2500) {
-          spaceCount = 0;
-          return;
-        }
         spaceCount = 0;
+        if (now - lastTriggerAt < 2500) {
+          return;
+        }
         lastTriggerAt = now;
         e.preventDefault();
         el.classList.add("wt-translating");
