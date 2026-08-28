@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "网页翻译助手",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "全页沉浸式翻译(替换为中文)、输入框三连空格翻译成英文、视频字幕双语翻译。无需登录,无多余界面。",
   "permissions": [
     "webNavigation",

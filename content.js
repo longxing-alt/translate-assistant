@@ -16,7 +16,17 @@
   const TARGET = "zh-CN";
   const INPUT_TARGET = "en";
   const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "SELECT", "OPTION", "HEAD", "CODE", "PRE", "KBD", "SAMP", "IFRAME", "SVG", "VIDEO", "AUDIO", "CANVAS", "MATH", "RUBY", "RP", "RT", "FONT"]);
-  const SKIP_SELECTORS = "wt-translated, [contenteditable=true], [role=dialog] [aria-modal=true], .ytp-caption-segment, #wt-panel";
+  const SKIP_SELECTORS = "wt-translated, [contenteditable=true], [role=dialog] [aria-modal=true], .ytp-caption-segment, #wt-panel, #wt-toast, code, pre, kbd, samp, svg, math, mat-icon, .material-icons, .material-symbols-outlined, .material-symbols-rounded, .notranslate, [translate=no], [aria-hidden=true]";
+  // white-space:pre* 环境下含换行的文本(代码/编辑器/ASCII 图)保持原样,避免换行缩进丢失
+  const wsCache = new WeakMap();
+  function isPreFormatted(p) {
+    let v = wsCache.get(p);
+    if (v === undefined) {
+      try { v = /^(pre|pre-wrap)/.test(window.getComputedStyle(p).whiteSpace); } catch (e) { v = false; }
+      wsCache.set(p, v);
+    }
+    return v;
+  }
 
   let pageEnabled = false;
   let sidebarVisible = false;
@@ -152,7 +162,10 @@
           const p = node.parentElement;
           if (!p) return NodeFilter.FILTER_REJECT;
           if (SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+          // 祖先级跳过:代码高亮 token 的直接父是 span,必须查整条祖先链(pre>code>span)
           if (p.closest && p.closest(SKIP_SELECTORS)) return NodeFilter.FILTER_REJECT;
+          // pre 格式化环境且含换行(代码块/编辑器)不翻译,避免排版塌陷
+          if (t.includes("\n") && isPreFormatted(p)) return NodeFilter.FILTER_REJECT;
           if (filterFn && !filterFn(t)) return NodeFilter.FILTER_REJECT;
           return NodeFilter.FILTER_ACCEPT;
         },
