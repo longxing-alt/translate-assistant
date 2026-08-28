@@ -3,6 +3,15 @@
 //      iframe/shadow DOM 全覆盖、调试侧边栏(Alt+T 查看状态与错误)
 (() => {
   "use strict";
+  if (window.__wtLoaded) return; // 防双注入(重载后自动补注入时,已有活脚本则直接退出)
+  window.__wtLoaded = true;
+
+  // 扩展重载/更新后,旧脚本 chrome.runtime 失效:自检失败时移除自己的监听器,让新脚本接管
+  function ctxAlive() {
+    try {
+      return typeof chrome !== "undefined" && !!chrome.runtime && chrome.runtime.id != null;
+    } catch (e) { return false; }
+  }
 
   const TARGET = "zh-CN";
   const INPUT_TARGET = "en";
@@ -231,8 +240,10 @@
     try { chrome.runtime.sendMessage({ type: "wt-sync-state", enabled }); } catch (e) { /* noop */ }
     if (pageEnabled) {
       translatePage(); // 调试面板不再自动弹出,需要时按 Alt+T 手动打开
+      toast("翻译已开启");
     } else {
       restorePage();
+      toast("已还原原文");
     }
   }
 
@@ -295,26 +306,35 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
   }
 
   // ============ 监听注册 ============
+  const seenHotkeyEvents = new WeakSet(); // window+document 双捕获去重(同一次按键只触发一次)
+  function hotkeyHandler(e) {
+    if (e.repeat) return; // 按住不放的自动重复不触发
+    if (!ctxAlive()) {
+      window.removeEventListener("keydown", hotkeyHandler, true);
+      document.removeEventListener("keydown", hotkeyHandler, true);
+      return;
+    }
+    if (seenHotkeyEvents.has(e)) return;
+    const isCtrlF = e.key === "f" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    const isF2 = e.key === "F2" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    const isAltT = e.key === "t" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    if (isCtrlF || isF2) {
+      seenHotkeyEvents.add(e);
+      e.preventDefault();
+      e.stopPropagation();
+      recordKey("F2/CtrlF");
+      requestToggle();
+    } else if (isAltT) {
+      seenHotkeyEvents.add(e);
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSidebar();
+    }
+  }
   function registerHotkeys() {
-    document.addEventListener(
-      "keydown",
-      (e) => {
-        const isCtrlF = e.key === "f" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
-        const isF2 = e.key === "F2" && !e.ctrlKey && !e.metaKey && !e.altKey;
-        const isAltT = e.key === "t" && e.altKey && !e.ctrlKey && !e.metaKey;
-        if (isCtrlF || isF2) {
-          e.preventDefault();
-          e.stopPropagation();
-          recordKey("F2/CtrlF");
-          requestToggle();
-        } else if (isAltT) {
-          e.preventDefault();
-          e.stopPropagation();
-          toggleSidebar();
-        }
-      },
-      true
-    );
+    // document_start 即注册 window 捕获(先于页面脚本),页面在 window 层 stopPropagation 也拦不住
+    window.addEventListener("keydown", hotkeyHandler, true);
+    document.addEventListener("keydown", hotkeyHandler, true);
   }
 
   function registerTripleSpace() {
@@ -323,7 +343,8 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
     let lastTriggerAt = 0;
     document.addEventListener(
       "keydown",
-      (e) => {
+      function spaceHandler(e) {
+        if (!ctxAlive()) { document.removeEventListener("keydown", spaceHandler, true); return; }
         // 只统计非输入法合成状态下的空格(选字确认的 229/composing 不计,避免打字误触)
         const isSpace = e.key === " " && !e.isComposing && e.keyCode !== 229;
         if (!isSpace) {
@@ -356,6 +377,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         el.classList.add("wt-translating");
         stats.lastAction = "输入框三连空格触发";
         log("三连空格触发");
+        toast("正在翻译输入框…");
 
         let text = "";
         if (el.isContentEditable) text = (el.innerText || "").trim();
@@ -369,6 +391,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
           if (!tr || isBadResult(tr, text)) {
             stats.lastAction = "输入框翻译失败";
             log("输入框翻译失败: " + stats.lastError);
+            toast("输入框翻译失败");
             return;
           }
           if (el.isContentEditable) {
@@ -381,6 +404,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
           }
           stats.lastAction = "输入框已翻译为英文";
           log("输入框翻译完成");
+          toast("已翻译为英文");
         });
       },
       true
@@ -390,14 +414,22 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
   function registerRuntime() {
     try {
       chrome.runtime.onMessage.addListener((msg) => {
-        if (msg && msg.type === "wt-sidebar") toggleSidebar();
-        else if (msg && msg.type === "wt-state") applyState(!!msg.enabled);
+        if (!ctxAlive()) return;
+        if (msg && msg.type === "wt-sidebar") {
+          if (window.top === window) toggleSidebar(); // 面板只在顶层 frame 弹出
+        } else if (msg && msg.type === "wt-state") {
+          applyState(!!msg.enabled);
+        } else if (msg && msg.type === "wt-toggle-request") {
+          // 图标点击:由顶层 frame 统一决策,避免各 frame 各自翻转导致状态不一致
+          if (window.top === window) requestToggle();
+        }
       });
     } catch (e) { /* noop */ }
   }
 
   function registerMessage() {
-    window.addEventListener("message", (e) => {
+    window.addEventListener("message", function msgHandler(e) {
+      if (!ctxAlive()) { window.removeEventListener("message", msgHandler); return; }
       const m = e.data;
       if (m && m.type === "wt-toggle") {
         if (m.id === lastMsgId) return;
@@ -413,6 +445,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
   function ensureObserver() {
     if (mo) return;
     mo = new MutationObserver(() => {
+      if (!ctxAlive()) { try { mo.disconnect(); } catch (e) { /* noop */ } mo = null; return; }
       if (!pageEnabled) return;
       const nodes = collectTranslateNodes(document);
       collectShadowNodes(nodes, true);
@@ -431,7 +464,8 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
       });
     });
     mo.observe(document, { childList: true, subtree: true, characterData: true });
-    setInterval(() => {
+    const shadowTimer = setInterval(() => {
+      if (!ctxAlive()) { clearInterval(shadowTimer); return; }
       if (!pageEnabled) return;
       try {
         for (const el of document.querySelectorAll("*")) {
@@ -455,6 +489,27 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
         }
       } catch (e) { /* noop */ }
     }, 1500);
+  }
+
+  // ============ 轻量提示 toast(只在顶层显示,替代面板作为操作反馈) ============
+  function toast(msg) {
+    try {
+      if (window.top !== window) return;
+      let el = document.getElementById("wt-toast");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "wt-toast";
+        el.style.cssText =
+          "position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:rgba(32,33,36,.92);color:#fff;" +
+          "padding:8px 18px;border-radius:20px;font:13px/1.6 -apple-system,'Segoe UI','Microsoft YaHei',sans-serif;" +
+          "z-index:2147483647;pointer-events:none;opacity:0;transition:opacity .25s ease";
+        (document.body || document.documentElement).appendChild(el);
+      }
+      el.textContent = msg;
+      el.style.opacity = "1";
+      clearTimeout(el.__wtT);
+      el.__wtT = setTimeout(() => { el.style.opacity = "0"; }, 1600);
+    } catch (e) { /* noop */ }
   }
 
   // ============ 翻译渐变效果 ============
@@ -503,7 +558,7 @@ ${stats.logs.slice(-12).map((l) => `<div style="color:#999;font-size:11px">${l}<
   }
   if (!boot()) {
     document.addEventListener("DOMContentLoaded", () => boot(), { once: true });
+    // 不设时间上限:极慢站点 DOMContentLoaded 晚于 15s 也能补上监听
     const t = setInterval(() => { if (boot()) clearInterval(t); }, 120);
-    setTimeout(() => clearInterval(t), 15000);
   }
 })();

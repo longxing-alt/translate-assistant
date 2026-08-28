@@ -1,9 +1,23 @@
 // 网页翻译助手 - 后台:翻译请求 + 状态同步
 // 端点链:Google POST → MyMemory(Google 不可达时自动跳过,避免干等)
+
+// 点击图标 = 切换翻译(由页面顶层 frame 统一决策并广播到所有 frame)
 chrome.action.onClicked.addListener((tab) => {
   if (tab && tab.id != null) {
-    try { chrome.tabs.sendMessage(tab.id, { type: "wt-sidebar" }); } catch (e) { /* noop */ }
+    try { chrome.tabs.sendMessage(tab.id, { type: "wt-toggle-request" }); } catch (e) { /* noop */ }
   }
+});
+
+// 扩展安装/更新/重载后,向所有已打开的网页自动补注入:
+// 重载会让旧 content script 失效(Chrome 不会自动重注入),不补注入的话旧标签页快捷键就是"没反应"
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.tabs.query({}, (tabs) => {
+    (tabs || []).forEach((t) => {
+      if (t.id == null || !t.url || !/^(https?|file):/i.test(t.url)) return;
+      chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, files: ["content.js"] }).catch(() => {});
+      chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, files: ["subtitle.js"] }).catch(() => {});
+    });
+  });
 });
 
 function fetchWithTimeout(url, opts) {

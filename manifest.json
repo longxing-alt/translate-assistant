@@ -1,10 +1,16 @@
 {
   "manifest_version": 3,
   "name": "网页翻译助手",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "全页沉浸式翻译(替换为中文)、输入框三连空格翻译成英文、视频字幕双语翻译。无需登录,无多余界面。",
   "permissions": [
-    "webNavigation"
+    "webNavigation",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "file:///*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -32,6 +38,6 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "翻译助手:点击开关调试面板"
+    "default_title": "点击开关翻译(F2 / Ctrl+F)"
   }
 }

@@ -2,6 +2,15 @@
 // 英文等外语字幕 → 双语显示(原文 + 中文),中文视频保持原样
 (() => {
   "use strict";
+  if (window.__wtSubLoaded) return; // 防双注入
+  window.__wtSubLoaded = true;
+
+  // 扩展重载后旧脚本 chrome.runtime 失效时自清理,让新脚本接管
+  function ctxAlive() {
+    try {
+      return typeof chrome !== "undefined" && !!chrome.runtime && chrome.runtime.id != null;
+    } catch (e) { return false; }
+  }
 
   const cache = new Map(); // 字幕文本 → 译文
 
@@ -31,6 +40,7 @@
   }
 
   function processSegments() {
+    if (!ctxAlive()) { try { obs.disconnect(); } catch (e) { /* noop */ } return; }
     document.querySelectorAll(".ytp-caption-segment").forEach((el) => {
       if (el.__wtProcessed) return;
       el.__wtProcessed = true;
